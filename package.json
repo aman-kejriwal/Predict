@@ -1,0 +1,34 @@
+{
+  "name": "oracle-predict",
+  "version": "1.0.0",
+  "description": "Predict anything. Ask a question about your future; Oracle builds a custom forecasting model, interviews you adaptively, and returns a calibrated probability with the reasons, levers and scenarios behind it.",
+  "type": "module",
+  "main": "src/server/server.js",
+  "bin": {
+    "oracle": "src/cli.js"
+  },
+  "scripts": {
+    "start": "node src/server/server.js",
+    "dev": "node --watch src/server/server.js",
+    "cli": "node src/cli.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aman-kejriwal/Predict.git"
+  },
+  "keywords": [
+    "prediction",
+    "forecasting",
+    "bayesian",
+    "claude",
+    "monte-carlo"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0"
+  }
+}

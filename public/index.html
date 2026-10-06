@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Oracle — Predict Anything</title>
+  <meta name="description" content="Ask any question about your future. Oracle builds a forecasting model, interviews you, and shows the odds, the reasons, and what you can change." />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="sky" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <a class="brand" href="/" data-nav="home">
+      <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true"><defs><radialGradient id="bg" cx="35%" cy="30%"><stop offset="0" stop-color="#fff" stop-opacity=".95"/><stop offset=".35" stop-color="var(--accent-2)"/><stop offset="1" stop-color="var(--accent)"/></radialGradient></defs><circle cx="16" cy="16" r="13" fill="url(#bg)"/><circle cx="16" cy="16" r="15" fill="none" stroke="var(--accent)" stroke-opacity=".35"/></svg>
+      <span>Oracle</span>
+    </a>
+    <nav class="topnav">
+      <span id="mode-badge" class="badge" title="">…</span>
+      <button class="link" data-nav="journal">Journal <span id="journal-count" class="count"></span></button>
+      <button class="icon-btn" id="theme-toggle" aria-label="Toggle theme" title="Toggle theme">◐</button>
+    </nav>
+  </header>
+
+  <main id="app">
+    <!-- HOME -->
+    <section id="view-home" class="view">
+      <div class="hero">
+        <p class="eyebrow">Forecasting engine · Bayesian · Monte Carlo</p>
+        <h1>What do you want<br /><em>to know about your future?</em></h1>
+        <p class="lede">Ask anything. Oracle builds a forecasting model for your question, asks only what it needs, and gives you the odds, the reasons behind them, and what you can change.</p>
+
+        <form id="ask-form" class="ask" autocomplete="off">
+          <div class="ask-row">
+            <input id="question" name="question" maxlength="300" placeholder="Will I be rich in the future?" aria-label="Your question" required />
+            <button class="btn primary" type="submit">Predict <span aria-hidden="true">→</span></button>
+          </div>
+          <details class="context">
+            <summary>Add context about yourself <span class="muted">(optional, lets Oracle skip questions)</span></summary>
+            <textarea id="context" maxlength="1500" rows="3" placeholder="e.g. I'm 24, a software engineer in Bangalore, saving about 25% of my salary in index funds…"></textarea>
+          </details>
+        </form>
+
+        <div class="examples" id="examples" aria-label="Example questions"></div>
+      </div>
+
+      <div class="how">
+        <div class="how-step"><span class="num">1</span><h3>Outside view</h3><p>Starts from the real base rate for people like you, not wishful thinking.</p></div>
+        <div class="how-step"><span class="num">2</span><h3>Adaptive interview</h3><p>Each next question is the one most likely to change your forecast.</p></div>
+        <div class="how-step"><span class="num">3</span><h3>Bayesian update</h3><p>Every answer shifts the odds. You can see exactly how much, and why.</p></div>
+        <div class="how-step"><span class="num">4</span><h3>4,000 simulations</h3><p>Monte Carlo puts an honest uncertainty range around the estimate.</p></div>
+        <div class="how-step"><span class="num">5</span><h3>Levers</h3><p>Shows the changes that would raise your odds most, starting with the biggest.</p></div>
+      </div>
+    </section>
+
+    <!-- LOADING -->
+    <section id="view-loading" class="view" hidden>
+      <div class="loading">
+        <div class="orb-loader" aria-hidden="true"><span></span><span></span><span></span></div>
+        <h2 id="loading-title">Building your forecasting model…</h2>
+        <ol class="loading-steps" id="loading-steps">
+          <li>Defining exactly what “yes” means</li>
+          <li>Finding the right reference class &amp; base rate</li>
+          <li>Selecting the factors that separate yes from no</li>
+          <li>Calibrating evidence weights</li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- FRAMING -->
+    <section id="view-framing" class="view" hidden>
+      <div class="framing card">
+        <p class="eyebrow" id="frame-source"></p>
+        <h2 id="frame-title"></h2>
+        <p class="interp" id="frame-interp" hidden></p>
+        <dl class="frame-grid">
+          <div><dt>Resolves YES if</dt><dd id="frame-outcome"></dd></div>
+          <div><dt>Time horizon</dt><dd id="frame-horizon"></dd></div>
+        </dl>
+        <div class="base">
+          <div class="base-figure">
+            <div class="icon-array" id="frame-icons" aria-hidden="true"></div>
+          </div>
+          <div class="base-text">
+            <p class="kicker">Starting point (base rate)</p>
+            <p class="big" id="frame-base"></p>
+            <p class="muted" id="frame-base-note"></p>
+          </div>
+        </div>
+        <p class="muted small" id="frame-presets" hidden></p>
+        <div class="actions">
+          <button class="btn primary" id="start-interview">Start the interview <span id="frame-qcount" class="muted-inv"></span></button>
+          <button class="btn ghost" data-nav="home">Ask something else</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- INTERVIEW -->
+    <section id="view-interview" class="view" hidden>
+      <div class="interview">
+        <div class="qpane">
+          <div class="progress"><div class="progress-bar" id="progress-bar"></div></div>
+          <div class="qcard card" id="qcard" aria-live="polite">
+            <p class="kicker" id="q-kicker"></p>
+            <h2 id="q-text"></h2>
+            <div class="options" id="q-options" role="group"></div>
+            <div class="q-foot">
+              <button class="link" id="q-back">← Back</button>
+              <button class="link" id="q-skip">Not sure / skip</button>
+            </div>
+            <details class="why">
+              <summary>Why I'm asking</summary>
+              <p id="q-why"></p>
+            </details>
+            <p class="q-value muted small" id="q-value"></p>
+          </div>
+          <div class="followup-note card" id="followup-note" hidden></div>
+        </div>
+
+        <aside class="live">
+          <div class="card live-card">
+            <p class="kicker">Live forecast</p>
+            <div id="live-gauge"></div>
+            <div id="live-spark" class="spark"></div>
+            <button class="btn primary wide" id="reveal-now" disabled>Reveal prediction</button>
+            <p class="muted small center" id="reveal-hint">Answer a few questions first</p>
+          </div>
+          <div class="card ledger-card">
+            <p class="kicker">Evidence so far</p>
+            <ul class="ledger" id="ledger"></ul>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- RESULT -->
+    <section id="view-result" class="view" hidden>
+      <div class="result">
+        <div class="result-hero card">
+          <div class="rh-gauge" id="result-gauge"></div>
+          <div class="rh-text">
+            <p class="eyebrow" id="r-title"></p>
+            <h2 id="r-headline" class="headline"></h2>
+            <p class="muted" id="r-outcome"></p>
+            <div class="stats">
+              <div class="stat"><span class="stat-label">80% range</span><span class="stat-value" id="r-interval"></span></div>
+              <div class="stat"><span class="stat-label">Base rate</span><span class="stat-value" id="r-base"></span></div>
+              <div class="stat"><span class="stat-label">Confidence</span><span class="stat-value" id="r-confidence"></span></div>
+              <div class="stat"><span class="stat-label">Answered</span><span class="stat-value" id="r-answered"></span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <h3>Out of 100 people like you</h3>
+            <div class="icon-array large" id="r-icons"></div>
+            <p class="muted small" id="r-icons-caption"></p>
+          </div>
+          <div class="card">
+            <h3>How sure is this? <span class="muted small">4,000 simulations</span></h3>
+            <div id="r-dist"></div>
+            <p class="muted small">Each bar shows how often the simulations landed in that range. The spread comes from uncertainty in the base rate, in the evidence weights, and from questions you skipped.</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>From base rate to your forecast</h3>
+          <div id="r-waterfall"></div>
+        </div>
+
+        <div class="card reading" id="r-reading">
+          <div class="reading-head">
+            <h3>Oracle's reading</h3>
+            <span class="badge subtle" id="r-reading-source"></span>
+          </div>
+          <div id="r-reading-body"><div class="skeleton"></div><div class="skeleton short"></div><div class="skeleton"></div></div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <h3>Your biggest levers</h3>
+            <ol class="levers" id="r-levers"></ol>
+            <div class="path" id="r-path"></div>
+          </div>
+          <div class="card">
+            <h3>Scenarios</h3>
+            <div class="scenarios" id="r-scenarios"></div>
+          </div>
+        </div>
+
+        <div class="card whatif">
+          <div class="whatif-head">
+            <div>
+              <h3>What-if lab</h3>
+              <p class="muted small">Change any answer and watch the forecast update instantly.</p>
+            </div>
+            <div class="whatif-delta" id="whatif-delta"></div>
+            <button class="btn ghost small" id="whatif-reset">Reset</button>
+          </div>
+          <div class="whatif-grid" id="whatif-grid"></div>
+        </div>
+
+        <details class="card method">
+          <summary><h3>How this was calculated</h3></summary>
+          <div id="r-method"></div>
+        </details>
+
+        <div class="result-actions">
+          <button class="btn primary" id="save-journal">Save to journal</button>
+          <button class="btn ghost" id="share-link">Copy share link</button>
+          <button class="btn ghost" id="download-card">Download card</button>
+          <button class="btn ghost" id="export-json">Export model</button>
+          <button class="btn ghost" data-nav="home">New prediction</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- JOURNAL -->
+    <section id="view-journal" class="view" hidden>
+      <div class="journal">
+        <div class="journal-head">
+          <div>
+            <p class="eyebrow">Prediction journal</p>
+            <h2>Keep score of your own future</h2>
+            <p class="muted">Save forecasts, come back when they resolve, and record what happened. Oracle tracks your calibration with the Brier score, the same metric professional forecasters are judged on.</p>
+          </div>
+          <div class="journal-tools">
+            <button class="btn ghost small" id="journal-export">Export</button>
+            <label class="btn ghost small">Import<input type="file" id="journal-import" accept="application/json" hidden /></label>
+          </div>
+        </div>
+        <div class="card calib" id="calibration"></div>
+        <ul class="journal-list" id="journal-list"></ul>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="save-dialog" class="card">
+    <form method="dialog" id="save-form">
+      <h3>Save to journal</h3>
+      <label>When should Oracle remind you to check the outcome?
+        <input type="date" id="save-date" required />
+      </label>
+      <label>Note to future you <span class="muted">(optional)</span>
+        <textarea id="save-note" rows="3" maxlength="500"></textarea>
+      </label>
+      <div class="actions">
+        <button class="btn primary" value="save">Save</button>
+        <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <footer class="foot">
+    <p>Oracle estimates odds from patterns. It isn't fate, and it isn't professional financial, medical or legal advice. Use it to think more clearly.</p>
+  </footer>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
