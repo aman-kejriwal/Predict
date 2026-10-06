@@ -23,7 +23,9 @@ Oracle: Resolves YES if your net worth reaches the top ~5% (≈US$1M+) by age ~6
 | **Starts from the base rate** | Every forecast begins with the real base rate for a reference class ("how often does this happen to people in general?"), the way professional forecasters work. |
 | **Any question** | With a Claude API key, Claude designs a model for *your exact question*: it defines a resolvable outcome, picks the reference class and base rate, chooses 7–12 predictive factors, and calibrates how much each answer should count. |
 | **Adaptive interview** | Questions are ordered by expected impact on your forecast. Follow-up questions branch off your earlier answers, and Claude adds personalised follow-ups once it has seen your answers. |
-| **Transparent math** | Bayesian updating in log-odds space with a correlation correction. Every number can be traced in the "How this was calculated" panel. |
+| **Transparent math** | Bayesian updating in log-odds space. Every number can be traced in the "How this was calculated" panel. |
+| **Coherent by construction** | Weights are rescaled so the forecast averaged over the reference class equals the base rate (the law of total probability). Without this, hand-set or LLM-set weights quietly bias every forecast. |
+| **Calibration you can check** | The correlation correction is tuned by simulation, and any forecast's model can be stress-tested in the browser ("Run calibration check"): Oracle simulates 4,000 people and draws the reliability diagram against naive Bayes. |
 | **Honest uncertainty** | 4,000 Monte Carlo simulations produce an 80% range. Answering more questions narrows it. |
 | **Levers & path to yes** | Ranks the changes you control by impact, and finds the fewest changes that would get you past 50%. |
 | **What-if lab** | Change any answer and watch the forecast, the waterfall and the levers update instantly. |
@@ -89,10 +91,30 @@ Requires Node.js 18.17+ (20.12+ to auto-load `.env`).
 
 **Why Claude builds the model but doesn't compute the answer.** Language models aren't calibrated calculators. Oracle uses Claude for what it's good at: framing the question, knowing the research on base rates and predictors, and asking good questions. The arithmetic runs in a small deterministic engine (`src/engine/core.js`), so the probability is reproducible, explainable and easy to inspect.
 
+### Is it calibrated?
+
+`npm run calibrate` simulates 20,000 people per built-in model, forecasts each one, and scores the forecasts against what happened to them. The seed is different from the one used for tuning:
+
+| model | calibration error: Oracle | naive Bayes | log loss: Oracle | naive | base rate only |
+|---|---|---|---|---|---|
+| wealth | **0.4%** | 1.7% | **0.201** | 0.205 | 0.265 |
+| startup | **0.4%** | 1.9% | **0.283** | 0.285 | 0.333 |
+| marriage | **0.6%** | 3.3% | **0.579** | 0.585 | 0.689 |
+| longevity | **0.6%** | 2.3% | **0.498** | 0.500 | 0.560 |
+| job | **1.3%** | 3.0% | **0.527** | 0.531 | 0.608 |
+| exam | **0.9%** | 3.4% | **0.602** | 0.607 | 0.693 |
+| fitness | **0.7%** | 2.0% | **0.446** | 0.448 | 0.497 |
+| habit | **0.8%** | 1.6% | **0.458** | 0.460 | 0.506 |
+
+Calibration error is the average gap between the forecast and how often it came true. Oracle is 2–5× better calibrated than naive Bayes and has lower log loss and Brier score on every model.
+
+**What this does and doesn't show.** The simulation draws people from each model's own assumptions, including a hidden trait shared across questions, so the questions overlap the way they do in real life. It shows that the engine's math is internally consistent: coherence, the correlation correction, and the combination of evidence. It can't show that the *weights themselves* match the real world. Only real outcomes can, which is what the prediction journal's Brier score is for.
+
 ### Calibration details
 
 - **Evidence weights** are natural-log likelihood ratios: `log(P(answer | yes) / P(answer | no))`. ±0.2 is weak, ±0.5 moderate, ±1 strong, ±2 near-decisive. All weights are clamped to ±3.
-- **Correlation correction.** Naive Bayes assumes factors are independent, which makes it overconfident: income and savings rate overlap, for example. Oracle scales the combined evidence by `1/√(1+ρ(n−1))`, where ρ is the model's estimated average factor correlation.
+- **Coherence.** For each question with answer frequencies m and likelihood ratios L, Oracle solves for the scale λ that makes `Σ m·P(yes | answer) = base rate`, then uses λL. Relative evidence between answers is preserved, the solve is capped at ±3 in log space, and re-validating a model never changes it.
+- **Correlation correction, tuned by simulation.** Naive Bayes assumes questions are independent, so it double-counts overlapping ones like income and savings rate. The model's author (Claude or the built-in library) estimates *how much* signal the questions share. Oracle simulates a population with that much overlap and picks the shrink factor ρ in `1/√(1+ρ(n−1))` that forecasts it best. Every answered question counts toward n, which keeps the forecast monotone: a stronger answer never lowers it.
 - **Uncertainty.** The simulation varies the base rate (logit-normal), each evidence weight (sd grows with its magnitude), and fills unanswered questions by sampling from how common each answer is. That's why the range narrows as you answer.
 - **Question selection.** For each open question Oracle computes the expected absolute change in probability over its possible answers and asks the largest. Reference-class questions always go first, because they reset the starting point.
 
@@ -102,11 +124,13 @@ Requires Node.js 18.17+ (20.12+ to auto-load `.env`).
 src/engine/core.js       Forecasting engine: validation, inference, Monte Carlo, levers (runs in Node and the browser)
 src/engine/library.js    Built-in offline models + question matcher
 src/engine/narrative.js  Offline written reading
+src/engine/calibration.js Simulation-based calibration study + correlation tuning
+scripts/calibration-report.js  `npm run calibrate`
 src/server/oracle-ai.js  Claude integration (structured outputs, refusal fallbacks)
 src/server/server.js     Zero-framework HTTP server + JSON API
 src/cli.js               Terminal interface
 public/                  Web app (vanilla JS, SVG charts, no build step)
-test/                    node:test suites (engine, server, Claude integration via a fake API)
+test/                    unit, fuzz, API-abuse and browser (Playwright) suites
 ```
 
 ### API
@@ -126,7 +150,23 @@ The server re-validates every model and answer set it receives, so clients can't
 npm test
 ```
 
-28 tests cover the math (Bayes updates, correlation shrink, conditional questions, deterministic simulation, levers, path-finding), every built-in model, sanitisation of hostile model input, the HTTP API (including path-traversal checks), and the Claude integration, which runs against a local fake Messages API, so no key is needed.
+The suite has four layers:
+
+- **Unit tests:** the math, every built-in model, and the Claude integration. The Claude tests run against a local fake Messages API, so no key is needed.
+- **Property-based fuzzing:** random and often hostile models, including `NaN`, `Infinity`, junk types, duplicate ids, broken conditional links and prototype-pollution keys. Each run checks these properties:
+  - validation never crashes and is idempotent
+  - coherence holds for every question
+  - probabilities stay finite and in range
+  - the waterfall chart sums to the forecast
+  - levers report exactly the probability they produce
+  - the "path to yes" only goes up
+  - a stronger answer never lowers the forecast
+  - interviews always end
+  - the tuned correction beats naive Bayes
+
+  Run harder with `FUZZ_ROUNDS=5000 npm test`.
+- **API abuse tests:** malformed or non-object JSON, wrong field types, oversized bodies, path-traversal variants, prototype-pollution payloads, injected out-of-range weights, and 100 concurrent requests.
+- **Browser tests** (Playwright, skipped if it isn't installed): the full flow, script injection in questions and imported journals, keyboard-only use, skip-everything, back navigation, share-link round trips and tampered links, malformed journal imports, conditional questions in the what-if lab, downloads, and no sideways scrolling on mobile. Any console error fails the test.
 
 ## A note on honesty
 

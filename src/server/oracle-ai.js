@@ -18,7 +18,7 @@ export function aiAvailable() {
 }
 
 function getClient() {
-  if (!client) client = new Anthropic({ maxRetries: 2, timeout: 180_000 });
+  if (!client) client = new Anthropic({ maxRetries: 1, timeout: 120_000 });
   return client;
 }
 
@@ -66,7 +66,7 @@ const factorSchema = {
 const modelSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['title', 'outcome', 'horizon', 'domain', 'interpretation', 'baseRate', 'baseRateNote', 'baseRateUncertainty', 'dependence', 'caveat', 'factors'],
+  required: ['title', 'outcome', 'horizon', 'domain', 'interpretation', 'baseRate', 'baseRateNote', 'baseRateUncertainty', 'overlap', 'caveat', 'factors'],
   properties: {
     title: { type: 'string', description: 'Short, punchy title for the prediction (max ~8 words).' },
     outcome: { type: 'string', description: 'Precise, resolvable definition of YES. Someone should be able to check it later without arguing.' },
@@ -76,7 +76,7 @@ const modelSchema = {
     baseRate: { type: 'number', description: 'Probability of YES for the reference class BEFORE knowing anything specific about this person (0-1).' },
     baseRateNote: { type: 'string', description: 'The reference class and where the base rate comes from, in 1-2 sentences.' },
     baseRateUncertainty: { type: 'number', description: 'Your uncertainty about the base rate as a standard deviation in log-odds (0.1 confident ... 1.0 very unsure).' },
-    dependence: { type: 'number', description: 'Average correlation between factors (0 independent ... 0.6 heavily overlapping). Usually 0.15-0.35.' },
+    overlap: { type: 'number', description: 'Share of the factors\' predictive signal that comes from a common underlying trait rather than independent information (0 = fully independent factors, 0.3 = typical, 0.6+ = factors mostly measure the same thing). Oracle uses this to tune its correlation correction by simulation.' },
     caveat: { type: 'string', description: 'One sentence of honest limitation or safety note (e.g. not medical advice); "" if none needed.' },
     factors: { type: 'array', items: factorSchema },
   },

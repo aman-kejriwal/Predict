@@ -120,7 +120,8 @@ main { max-width: 1200px; margin: 0 auto; padding: 0 clamp(16px, 4vw, 40px) 40px
 .btn.wide { width: 100%; }
 .link { background: none; border: 0; color: var(--text-2); cursor: pointer; padding: 4px 2px; font-size: 14px; }
 .link:hover { color: var(--text); }
-.icon-btn { background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; width: 34px; height: 34px; cursor: pointer; }
+.icon-btn { background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; width: 34px; height: 34px; cursor: pointer; display: grid; place-items: center; color: var(--text-2); }
+.icon-btn:hover { color: var(--text); border-color: var(--accent); }
 .eyebrow { text-transform: uppercase; letter-spacing: 0.14em; font-size: 11.5px; color: var(--accent-2); font-weight: 600; margin: 0 0 10px; }
 .kicker { text-transform: uppercase; letter-spacing: 0.1em; font-size: 11px; color: var(--text-3); font-weight: 600; margin: 0 0 8px; }
 .muted { color: var(--text-2); }
@@ -386,3 +387,17 @@ dialog label { display: grid; gap: 6px; margin: 12px 0; font-size: 14px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* calibration check */
+.calib-check { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
+.calib-check h4 { margin: 0 0 6px; font-size: 14px; }
+.calib-grid { display: grid; grid-template-columns: minmax(200px, 300px) 1fr; gap: 20px; align-items: center; margin: 10px 0; }
+.chart .cal-oracle { fill: var(--accent-2); }
+.chart .cal-naive { fill: var(--neg); fill-opacity: 0.6; }
+.key-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
+.key-dot.oracle { background: var(--accent-2); }
+.key-dot.naive { background: var(--neg); opacity: 0.7; }
+@media (max-width: 600px) { .calib-grid { grid-template-columns: 1fr; } }
+
+:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+.opt:focus-visible, .btn:focus-visible, .chip:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; }

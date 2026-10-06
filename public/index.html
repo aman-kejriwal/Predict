@@ -22,7 +22,7 @@
     <nav class="topnav">
       <span id="mode-badge" class="badge" title="">…</span>
       <button class="link" data-nav="journal">Journal <span id="journal-count" class="count"></span></button>
-      <button class="icon-btn" id="theme-toggle" aria-label="Toggle theme" title="Toggle theme">◐</button>
+      <button class="icon-btn" id="theme-toggle" aria-label="Toggle light/dark theme" title="Toggle theme"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></svg></button>
     </nav>
   </header>
 
@@ -62,6 +62,7 @@
       <div class="loading">
         <div class="orb-loader" aria-hidden="true"><span></span><span></span><span></span></div>
         <h2 id="loading-title">Building your forecasting model…</h2>
+        <p class="muted small" id="loading-elapsed"></p>
         <ol class="loading-steps" id="loading-steps">
           <li>Defining exactly what “yes” means</li>
           <li>Finding the right reference class &amp; base rate</li>
@@ -149,7 +150,7 @@
             <div class="stats">
               <div class="stat"><span class="stat-label">80% range</span><span class="stat-value" id="r-interval"></span></div>
               <div class="stat"><span class="stat-label">Base rate</span><span class="stat-value" id="r-base"></span></div>
-              <div class="stat"><span class="stat-label">Confidence</span><span class="stat-value" id="r-confidence"></span></div>
+              <div class="stat"><span class="stat-label" title="Share of the model's total evidence you have provided">Evidence gathered</span><span class="stat-value" id="r-confidence"></span></div>
               <div class="stat"><span class="stat-label">Answered</span><span class="stat-value" id="r-answered"></span></div>
             </div>
           </div>

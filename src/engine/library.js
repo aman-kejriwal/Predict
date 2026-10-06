@@ -25,7 +25,7 @@ export const LIBRARY = [
     domain: 'finance',
     baseRate: 0.07,
     baseRateNote: 'Roughly 5–9% of households in wealthy countries reach this level by retirement age; most get there through decades of saving and investing, not windfalls.',
-    dependence: 0.25,
+    overlap: 0.35,
     caveat: 'Markets, health and luck matter a lot. This estimates odds, not destiny.',
     factors: [
       {
@@ -183,7 +183,7 @@ export const LIBRARY = [
     domain: 'business',
     baseRate: 0.1,
     baseRateNote: 'Around 90% of startups fail; roughly 10% reach profitability or a meaningful exit. Venture-backed startups have similar odds of returning capital.',
-    dependence: 0.3,
+    overlap: 0.4,
     factors: [
       {
         id: 'founder_experience', label: 'Founder track record', type: 'choice', controllable: false,
@@ -286,7 +286,7 @@ export const LIBRARY = [
     domain: 'relationships',
     baseRate: 0.55,
     baseRateNote: 'Across committed adult couples, roughly half to two-thirds are still together after 10 years; first marriages last longer than dating relationships.',
-    dependence: 0.3,
+    overlap: 0.4,
     factors: [
       {
         id: 'status', label: 'Commitment stage', type: 'choice', controllable: false,
@@ -370,7 +370,7 @@ export const LIBRARY = [
     domain: 'health',
     baseRate: 0.25,
     baseRateNote: 'In high-income countries roughly 20–30% of people born today reach 90 (more women than men). Lifestyle factors shift this substantially.',
-    dependence: 0.25,
+    overlap: 0.35,
     caveat: 'Not medical advice. Talk to a doctor about your personal risks.',
     factors: [
       {
@@ -475,7 +475,7 @@ export const LIBRARY = [
     domain: 'career',
     baseRate: 0.3,
     baseRateNote: 'For people actively pursuing a competitive target role, roughly a quarter to a third land it within a year; the rest either wait longer or pivot.',
-    dependence: 0.25,
+    overlap: 0.35,
     factors: [
       {
         id: 'fit', label: 'Qualification fit', type: 'scale', controllable: true,
@@ -559,7 +559,7 @@ export const LIBRARY = [
     domain: 'education',
     baseRate: 0.5,
     baseRateNote: 'Pass rates vary hugely by exam. Answer the first question to set the right reference class.',
-    dependence: 0.3,
+    overlap: 0.4,
     factors: [
       {
         id: 'difficulty', kind: 'prior', label: 'Reference class', type: 'choice',
@@ -646,7 +646,7 @@ export const LIBRARY = [
     domain: 'health',
     baseRate: 0.2,
     baseRateNote: 'Only about 20% of people who set a weight or fitness goal reach it and keep it for six months or more.',
-    dependence: 0.3,
+    overlap: 0.4,
     caveat: 'Not medical advice.',
     factors: [
       {
@@ -720,7 +720,7 @@ export const LIBRARY = [
     domain: 'personal growth',
     baseRate: 0.2,
     baseRateNote: 'Studies of New Year’s resolutions find roughly 1 in 5 people are still on track after six months.',
-    dependence: 0.3,
+    overlap: 0.4,
     factors: [
       {
         id: 'size', label: 'Habit size', type: 'choice', controllable: true,
@@ -790,7 +790,7 @@ export function genericModel(question) {
     domain: 'general',
     baseRate: 0.35,
     baseRateNote: 'Oracle has no specialised model for this question, so it starts from the reference class you choose in the first question.',
-    dependence: 0.3,
+    overlap: 0.4,
     source: 'generic',
     caveat: 'Generic model. Connect Claude (set ANTHROPIC_API_KEY) for a model tailored to this exact question.',
     factors: [

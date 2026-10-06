@@ -29,8 +29,9 @@ test('no answers returns the base rate', () => {
 });
 
 test('evidence moves the posterior by exactly the likelihood ratio when independent', () => {
-  const p = posterior(toy(), { a: 0 }).p;
-  const expected = sigmoid(logit(0.2) + 1);
+  const m = toy();
+  const p = posterior(m, { a: 0 }).p;
+  const expected = sigmoid(logit(0.2) + m.factors[0].options[0].logLR);
   assert.ok(Math.abs(p - expected) < 1e-9);
 });
 
@@ -136,8 +137,9 @@ test('validateModel sanitises hostile input', () => {
   assert.equal(m.dependence, 0);
   assert.equal(m.factors.length, 3);
   assert.equal(m.factors[0].options.length, 2);
-  assert.equal(m.factors[0].options[0].logLR, 3);
-  assert.equal(m.factors[0].options[1].logLR, 0);
+  assert.equal(m.factors[0].options[0].rawLogLR, 3);
+  assert.equal(m.factors[0].options[1].rawLogLR, 0);
+  assert.ok(m.factors[0].options.every((o) => Math.abs(o.logLR) <= 3));
   assert.notEqual(m.factors[0].id, m.factors[1].id);
   assert.equal(m.factors[2].askIf, null);
   assert.throws(() => validateModel({ factors: [] }));
@@ -176,7 +178,7 @@ test('matchLibrary routes questions to the right model', () => {
 test('analyze returns a complete bundle', () => {
   const m = validateModel(LIBRARY[0]);
   const r = analyze(m, { age: 1, income: 3, savings_rate: 3 });
-  for (const k of ['p', 'interval', 'confidence', 'contributions', 'waterfall', 'levers', 'path', 'scenarios', 'simulation']) {
+  for (const k of ['p', 'interval', 'coverage', 'contributions', 'waterfall', 'levers', 'path', 'scenarios', 'simulation']) {
     assert.ok(k in r, `missing ${k}`);
   }
   assert.ok(r.scenarios.fullPotential >= r.p);

@@ -11,6 +11,7 @@
     "start": "node src/server/server.js",
     "dev": "node --watch src/server/server.js",
     "cli": "node src/cli.js",
+    "calibrate": "node scripts/calibration-report.js",
     "test": "node --test test/*.test.js"
   },
   "engines": {

@@ -7,10 +7,32 @@ const KEY = 'oracle.journal.v1';
 function read() {
   try {
     const data = JSON.parse(localStorage.getItem(KEY) || '[]');
-    return Array.isArray(data) ? data : [];
+    return Array.isArray(data) ? data.map(sanitize).filter(Boolean) : [];
   } catch {
     return [];
   }
+}
+
+const DATE = /^\d{4}-\d{2}-\d{2}/;
+
+function sanitize(e) {
+  if (!e || typeof e !== 'object' || Array.isArray(e)) return null;
+  const p = Number(e.p);
+  if (typeof e.id !== 'string' || !e.id || !Number.isFinite(p)) return null;
+  const str = (v, max = 300) => (typeof v === 'string' ? v.slice(0, max) : '');
+  return {
+    ...e,
+    id: e.id.slice(0, 100),
+    p: Math.min(1, Math.max(0, p)),
+    title: str(e.title) || str(e.question) || 'Untitled prediction',
+    question: str(e.question),
+    note: str(e.note, 500),
+    createdAt: typeof e.createdAt === 'string' && DATE.test(e.createdAt) ? e.createdAt : new Date().toISOString(),
+    resolveBy: typeof e.resolveBy === 'string' && DATE.test(e.resolveBy) ? e.resolveBy.slice(0, 10) : null,
+    resolution: e.resolution === true || e.resolution === false ? e.resolution : null,
+    model: e.model && typeof e.model === 'object' ? e.model : null,
+    answers: e.answers && typeof e.answers === 'object' ? e.answers : {},
+  };
 }
 
 function write(list) {
@@ -40,8 +62,12 @@ export const journal = {
   remove(id) {
     write(read().filter((e) => e.id !== id));
   },
-  replaceAll(list) {
-    return write(list.filter((e) => e && e.id && typeof e.p === 'number'));
+  /** Merge imported entries (by id), repairing or dropping malformed ones. Returns the count kept. */
+  importMany(list) {
+    const clean = (Array.isArray(list) ? list : []).map(sanitize).filter(Boolean);
+    const byId = new Map(read().map((e) => [e.id, e]));
+    for (const e of clean) byId.set(e.id, e);
+    return write([...byId.values()]) ? clean.length : 0;
   },
   stats() {
     const all = read();

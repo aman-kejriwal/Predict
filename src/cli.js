@@ -5,6 +5,7 @@
 import readline from 'node:readline';
 import { stdin as input, stdout as output } from 'node:process';
 import { SKIP, analyze, nextQuestion, posterior, validateModel } from './engine/core.js';
+import { tuneDependence } from './engine/calibration.js';
 import { matchLibrary } from './engine/library.js';
 import { offlineNarrative } from './engine/narrative.js';
 import { aiAvailable, buildModel, followUps, narrate } from './server/oracle-ai.js';
@@ -54,14 +55,15 @@ async function main() {
     let model;
     let presets = {};
     if (offline) {
-      model = validateModel(matchLibrary(question).model);
+      model = tuneDependence(validateModel(matchLibrary(question).model));
     } else {
       console.log(dim('\n  Claude is designing your forecasting model…'));
       try {
         ({ model, presets } = await buildModel(question));
+        model = tuneDependence(model);
       } catch (err) {
         console.log(red(`  Claude unavailable (${err.message}); using built-in model.`));
-        model = validateModel(matchLibrary(question).model);
+        model = tuneDependence(validateModel(matchLibrary(question).model));
       }
     }
 
@@ -83,7 +85,7 @@ async function main() {
           try {
             const extra = await followUps(model, answers);
             if (extra.factors.length) {
-              model = validateModel({ ...model, factors: [...model.factors, ...extra.factors] });
+              model = tuneDependence(validateModel({ ...model, factors: [...model.factors, ...extra.factors] }));
               console.log(cyan(`  ✦ ${extra.note}\n`));
               continue;
             }
@@ -119,7 +121,7 @@ async function main() {
     const r = analyze(model, answers);
     console.log(`\n  ${'─'.repeat(56)}`);
     console.log(`  ${bold('FORECAST')}  ${bar(r.p)}  ${bold(pct(r.p))}  ${cyan(r.verdict.label)}`);
-    console.log(`  ${dim(`80% range ${pct(r.interval.low)}–${pct(r.interval.high)} · base rate ${pct(r.baseRate)} · confidence ${pct(r.confidence)}`)}`);
+    console.log(`  ${dim(`80% range ${pct(r.interval.low)}–${pct(r.interval.high)} · base rate ${pct(r.baseRate)} · evidence gathered ${pct(r.coverage)}`)}`);
     console.log(`  ${'─'.repeat(56)}\n`);
 
     if (r.contributions.length) {

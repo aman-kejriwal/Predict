@@ -104,10 +104,11 @@ export function validateModel(raw) {
       .map((o) => {
         const opt = {
           label: String(o.label).trim().slice(0, 140),
-          logLR: kind === 'prior' ? 0 : clamp(Number(o.logLR) || 0, -MAX_LOG_LR, MAX_LOG_LR),
-          prior: Number(o.prior) > 0 ? Number(o.prior) : 1,
+          logLR: kind === 'prior' ? 0 : clamp(Number.isFinite(Number(o.logLR)) ? Number(o.logLR) : 0, -MAX_LOG_LR, MAX_LOG_LR),
+          prior: Number.isFinite(Number(o.prior)) && Number(o.prior) > 0 ? Math.min(Number(o.prior), 1e6) : 1,
         };
         if (kind === 'prior') opt.p = clamp(Number(o.p) || 0.5, 0.001, 0.999);
+        else if (Number.isFinite(Number(o.rawLogLR)) && o.rawLogLR !== null) opt.rawLogLR = clamp(Number(o.rawLogLR), -MAX_LOG_LR, MAX_LOG_LR);
         return opt;
       });
     if (options.length < 2) continue;
@@ -149,6 +150,7 @@ export function validateModel(raw) {
   }
 
   const baseRate = clamp(Number(raw.baseRate) || 0.5, 0.001, 0.999);
+  for (const f of factors) if (f.kind === 'evidence') makeCoherent(f.options, baseRate);
   return {
     id: slugify(raw.id || raw.title || raw.question, 'prediction'),
     title: String(raw.title || raw.question || 'Prediction').trim().slice(0, 120),
@@ -159,11 +161,64 @@ export function validateModel(raw) {
     baseRate,
     baseRateNote: String(raw.baseRateNote || '').trim().slice(0, 500),
     baseRateUncertainty: clamp(Number(raw.baseRateUncertainty) || 0.35, 0.05, 1.5),
-    dependence: clamp(raw.dependence === undefined ? 0.2 : Number(raw.dependence) || 0, 0, 0.8),
+    // How much the questions share the same underlying signal (0..0.8), as
+    // judged by the model's author. tuneDependence() turns it into ρ.
+    overlap: clamp(raw.overlap === undefined ? 0.35 : Number(raw.overlap) || 0, 0, 0.8),
+    dependence: clamp(raw.dependence === undefined ? 0.1 : Number(raw.dependence) || 0, 0, 0.8),
+    dependenceTuned: Boolean(raw.dependenceTuned),
     caveat: String(raw.caveat || '').trim().slice(0, 400),
     source: String(raw.source || 'custom'),
     factors,
   };
+}
+
+/**
+ * Enforce the law of total probability on one factor.
+ *
+ * Each option has a population frequency m (its prior) and a likelihood ratio
+ * L. For the factor to be coherent with base rate b, averaging the posterior
+ * over the population must give b back:  Σ m·P(yes | option) = b.
+ * Hand-set or LLM-set weights rarely satisfy this, which silently biases
+ * every forecast up or down. We fix it with the unique scale λ such that the
+ * implied P(option | no) = m / (b·λL + 1 − b) sums to 1, and use λL as the
+ * effective likelihood ratio. Relative evidence between options is unchanged.
+ * Idempotent: coherent weights give λ = 1.
+ */
+export function makeCoherent(options, b) {
+  // The ±MAX_LOG_LR cap is applied inside the solve, so the capped weights
+  // are themselves coherent and re-validating a model never changes it.
+  const total = (shift) =>
+    options.reduce((s, o) => s + o.prior / (b * Math.exp(clamp(o.logLR + shift, -MAX_LOG_LR, MAX_LOG_LR)) + 1 - b), 0);
+  // total() is continuous and decreasing, > 1 at shift −30 and < 1 at +30,
+  // so bisection finds the root.
+  let lo = -30;
+  let hi = 30;
+  for (let i = 0; i < 100; i++) {
+    const mid = (lo + hi) / 2;
+    if (total(mid) > 1) lo = mid;
+    else hi = mid;
+  }
+  const shift = (lo + hi) / 2;
+  for (const o of options) {
+    o.rawLogLR = o.rawLogLR ?? o.logLR;
+    o.logLR = clamp(o.logLR + shift, -MAX_LOG_LR, MAX_LOG_LR);
+  }
+  return shift;
+}
+
+/**
+ * Keep only answers that refer to a real factor and a real option (or SKIP).
+ * Anything else — strings, prototype keys, out-of-range indexes — is dropped.
+ */
+export function cleanAnswers(model, answers) {
+  const out = {};
+  if (!answers || typeof answers !== 'object') return out;
+  for (const f of model.factors) {
+    if (!Object.prototype.hasOwnProperty.call(answers, f.id)) continue;
+    const v = answers[f.id];
+    if (Number.isInteger(v) && v >= SKIP && v < f.options.length) out[f.id] = v;
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -216,12 +271,18 @@ const shrink = (model, n) => 1 / Math.sqrt(1 + model.dependence * Math.max(0, n 
 export function posterior(model, answers = {}) {
   const base = effectiveBaseRate(model, answers);
   const evidence = [];
+  let answered = 0;
   for (const f of activeFactors(model, answers)) {
     if (f.kind !== 'evidence') continue;
     const opt = chosenOption(f, answers);
-    if (opt && opt.logLR !== 0) evidence.push({ factor: f, option: opt, logLR: opt.logLR });
+    if (!opt) continue;
+    // Every answered question counts toward the correlation correction, even a
+    // neutral one; otherwise moving off a neutral answer would change the
+    // shrink on everything else and could lower the forecast.
+    answered++;
+    if (opt.logLR !== 0) evidence.push({ factor: f, option: opt, logLR: opt.logLR });
   }
-  const k = shrink(model, evidence.length);
+  const k = shrink(model, answered);
   const sum = evidence.reduce((s, e) => s + e.logLR, 0);
   const logOdds = logit(base) + k * sum;
   return {
@@ -314,10 +375,11 @@ export function simulate(model, answers = {}, { n = 4000, seed } = {}) {
         world[f.id] = idx;
         opt = f.options[idx];
       }
-      if (!opt || opt.logLR === 0) continue;
+      if (!opt) continue;
+      count++;
+      if (opt.logLR === 0) continue;
       const sd = 0.25 * Math.abs(opt.logLR) + 0.08;
       sum += opt.logLR + sd * gaussian(rand);
-      count++;
     }
     const prior = L0 + model.baseRateUncertainty * gaussian(rand);
     samples[s] = sigmoid(prior + shrink(model, count) * sum);
@@ -454,8 +516,6 @@ export function analyze(model, answers = {}, { target = 0.5, simulations = 4000 
   const post = posterior(model, answers);
   const sim = simulate(model, answers, { n: simulations });
   const cov = coverage(model, answers);
-  // Interval width on the log-odds scale, so 1%–3% counts as uncertain as 25%–50%.
-  const logWidth = logit(clamp(sim.p90, 0.001, 0.999)) - logit(clamp(sim.p10, 0.001, 0.999));
   const allLevers = levers(model, answers);
   const maxed = pathTo(model, answers, 1.01);
   return {
@@ -464,7 +524,6 @@ export function analyze(model, answers = {}, { target = 0.5, simulations = 4000 
     verdict: verdict(post.p),
     interval: { low: sim.p10, high: sim.p90 },
     simulation: sim,
-    confidence: clamp(0.1 + 0.5 * cov + 0.4 * (1 - logWidth / 4), 0.05, 0.97),
     coverage: cov,
     answered: Object.values(answers).filter((v) => v !== SKIP).length,
     contributions: contributions(model, answers),

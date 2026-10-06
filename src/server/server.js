@@ -6,7 +6,8 @@ import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { validateModel, analyze } from '../engine/core.js';
+import { validateModel, analyze, cleanAnswers } from '../engine/core.js';
+import { tuneDependence } from '../engine/calibration.js';
 import { matchLibrary, LIBRARY } from '../engine/library.js';
 import { offlineNarrative } from '../engine/narrative.js';
 import { aiAvailable, buildModel, followUps, narrate, RefusalError } from './oracle-ai.js';
@@ -54,26 +55,29 @@ async function readJSON(req) {
     if (size > MAX_BODY) throw Object.assign(new Error('Request too large'), { status: 413 });
     chunks.push(chunk);
   }
+  let body;
   try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+    body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
   } catch {
     throw Object.assign(new Error('Invalid JSON'), { status: 400 });
   }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw Object.assign(new Error('Expected a JSON object'), { status: 400 });
+  }
+  return body;
 }
 
-function cleanAnswers(model, answers) {
-  const out = {};
-  if (!answers || typeof answers !== 'object') return out;
-  for (const f of model.factors) {
-    const v = Number(answers[f.id]);
-    if (f.id in answers && Number.isInteger(v) && v >= -1 && v < f.options.length) out[f.id] = v;
+function parseModel(raw) {
+  try {
+    return validateModel(raw);
+  } catch (err) {
+    throw Object.assign(new Error(`Invalid model: ${err.message}`), { status: 400 });
   }
-  return out;
 }
 
 function offlineModel(question) {
   const { model, score } = matchLibrary(question);
-  return { model: validateModel(model), presets: {}, interpretation: '', source: score ? 'library' : 'generic' };
+  return { model: tuneDependence(validateModel(model)), presets: {}, interpretation: '', source: score ? 'library' : 'generic' };
 }
 
 const routes = {
@@ -84,14 +88,14 @@ const routes = {
   }),
 
   'POST /api/model': async (body) => {
-    const question = String(body.question || '').trim().slice(0, 300);
-    const context = String(body.context || '').trim().slice(0, 1500);
+    const question = typeof body.question === 'string' ? body.question.trim().slice(0, 300) : '';
+    const context = typeof body.context === 'string' ? body.context.trim().slice(0, 1500) : '';
     if (question.length < 3) throw Object.assign(new Error('Please ask a question.'), { status: 400 });
 
     if (body.mode !== 'offline' && aiAvailable()) {
       try {
         const built = await buildModel(question, context);
-        return { ...built, source: 'claude' };
+        return { ...built, model: tuneDependence(built.model), source: 'claude' };
       } catch (err) {
         if (err instanceof RefusalError) throw Object.assign(err, { status: 422 });
         console.error('[oracle] AI model build failed, using offline model:', err.message);
@@ -102,7 +106,7 @@ const routes = {
   },
 
   'POST /api/followups': async (body) => {
-    const model = validateModel(body.model);
+    const model = parseModel(body.model);
     if (!aiAvailable()) return { factors: [], note: '' };
     try {
       return await followUps(model, cleanAnswers(model, body.answers));
@@ -113,7 +117,7 @@ const routes = {
   },
 
   'POST /api/narrative': async (body) => {
-    const model = validateModel(body.model);
+    const model = parseModel(body.model);
     const answers = cleanAnswers(model, body.answers);
     const result = analyze(model, answers);
     if (aiAvailable() && body.mode !== 'offline') {
@@ -168,7 +172,8 @@ export function createServer() {
       } catch (err) {
         const status = err.status || 500;
         if (status === 500) console.error('[oracle]', err);
-        send(res, status, { error: status === 500 ? 'Something went wrong.' : err.message });
+        // After a 413 the rest of the upload is unread, so the socket can't be reused.
+        send(res, status, { error: status === 500 ? 'Something went wrong.' : err.message }, status === 413 ? { Connection: 'close' } : {});
       }
       return;
     }

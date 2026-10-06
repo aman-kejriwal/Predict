@@ -1,4 +1,5 @@
-import { SKIP, analyze, nextQuestion, posterior, remainingFactors, simulate, contributions, validateModel, isActive } from '/engine/core.js';
+import { SKIP, analyze, nextQuestion, posterior, remainingFactors, simulate, contributions, validateModel, isActive, cleanAnswers } from '/engine/core.js';
+import { tuneDependence, calibrationStudy } from '/engine/calibration.js';
 import { offlineNarrative } from '/engine/narrative.js';
 import { matchLibrary } from '/engine/library.js';
 import { gauge, sparkline, iconArray, histogram, waterfallChart } from '/viz.js';
@@ -181,11 +182,16 @@ async function startPrediction() {
   );
 
   const started = Date.now();
+  const elapsedTimer = setInterval(() => {
+    const sec = Math.round((Date.now() - started) / 1000);
+    $('loading-elapsed').textContent = S.status.ai && sec > 3 ? `${sec}s · Claude usually takes 20–60 seconds to design a model` : '';
+  }, 1000);
+  $('loading-elapsed').textContent = '';
   try {
     let built;
     if (S.staticMode) {
       const { model, score } = matchLibrary(question);
-      built = { model: validateModel(model), presets: {}, interpretation: '', source: score ? 'library' : 'generic' };
+      built = { model: tuneDependence(validateModel(model)), presets: {}, interpretation: '', source: score ? 'library' : 'generic' };
     } else {
       built = await api('/api/model', { question, context: S.context });
     }
@@ -195,7 +201,7 @@ async function startPrediction() {
     await sleep(250);
 
     S.model = validateModel(built.model);
-    S.presets = built.presets || {};
+    S.presets = cleanAnswers(S.model, built.presets);
     S.interpretation = built.interpretation || '';
     S.source = built.source;
     S.followupsDone = false;
@@ -208,6 +214,7 @@ async function startPrediction() {
     show('home');
   } finally {
     clearInterval(stepTimer);
+    clearInterval(elapsedTimer);
   }
 }
 
@@ -362,7 +369,7 @@ async function fetchFollowups() {
   try {
     const res = await api('/api/followups', { model: S.model, answers: S.answers });
     if (res.factors?.length) {
-      S.model = validateModel({ ...S.model, factors: [...S.model.factors, ...res.factors] });
+      S.model = tuneDependence(validateModel({ ...S.model, factors: [...S.model.factors, ...res.factors] }));
       S.followupNote = res.note;
       const note = $('followup-note');
       note.hidden = false;
@@ -422,7 +429,7 @@ function bindResult() {
 }
 
 function summary(r) {
-  return { probability: r.p, interval: r.interval, baseRate: r.baseRate, verdict: r.verdict.label, confidence: r.confidence };
+  return { probability: r.p, interval: r.interval, baseRate: r.baseRate, verdict: r.verdict.label, evidenceGathered: r.coverage };
 }
 
 function renderResult() {
@@ -435,7 +442,7 @@ function renderResult() {
   $('r-outcome').textContent = `${m.outcome}${m.horizon ? ` · ${m.horizon}` : ''}`;
   $('r-interval').textContent = `${pct(r.interval.low)}–${pct(r.interval.high)}`;
   $('r-base').textContent = pct(r.baseRate);
-  $('r-confidence').textContent = pct(r.confidence);
+  $('r-confidence').textContent = pct(r.coverage);
   const totalQs = m.factors.filter((f) => isActive(f, S.whatIf, m)).length;
   $('r-answered').textContent = `${r.answered}/${totalQs}`;
 
@@ -502,19 +509,66 @@ function renderMethod(r) {
     .filter((f) => f.kind === 'evidence' && S.whatIf[f.id] !== undefined && S.whatIf[f.id] !== SKIP && isActive(f, S.whatIf, m))
     .map((f) => {
       const o = f.options[S.whatIf[f.id]];
-      return `<tr><td>${esc(f.label)}</td><td>${esc(o.label)}</td><td class="num-col">${o.logLR >= 0 ? '+' : ''}${o.logLR.toFixed(2)}</td><td class="num-col">×${Math.exp(o.logLR).toFixed(2)}</td></tr>`;
+      const raw = o.rawLogLR ?? o.logLR;
+      const fmt = (v) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}`;
+      return `<tr><td>${esc(f.label)}</td><td>${esc(o.label)}</td><td class="num-col">${fmt(raw)}</td><td class="num-col">${fmt(o.logLR)}</td><td class="num-col">×${Math.exp(o.logLR).toFixed(2)}</td></tr>`;
     })
     .join('');
   const post = posterior(m, S.whatIf);
   $('r-method').innerHTML = `
     <p><strong>1. Outside view.</strong> ${esc(m.baseRateNote)} Base rate used: <code>${pct(post.baseRate)}</code>.</p>
-    <p><strong>2. Evidence.</strong> Each answer has a likelihood ratio: how much more common that answer is among people for whom the outcome happens than among people for whom it doesn't. These are combined in log-odds space:</p>
+    <p><strong>2. Evidence.</strong> Each answer has a likelihood ratio (LR): how much more common that answer is among people for whom the outcome happens than among people for whom it doesn't. The evidence is combined in log-odds space:</p>
     <span class="formula">logit(p) = logit(${post.baseRate.toFixed(3)}) + ${post.shrink.toFixed(2)} × Σ log LR = ${post.logOdds.toFixed(2)}  →  p = ${pct(post.p)}</span>
-    <p><strong>3. Correlation correction.</strong> Factors overlap (income and savings, for example), so naive Bayes would be overconfident. The evidence is scaled by <code>1/√(1+ρ(n−1))</code> with ρ = ${m.dependence.toFixed(2)}, which gives <code>${post.shrink.toFixed(2)}</code>.</p>
-    <p><strong>4. Uncertainty.</strong> ${r.simulation.n.toLocaleString()} Monte Carlo simulations vary the base rate (σ = ${m.baseRateUncertainty} log-odds), each evidence weight, and fill unanswered questions with plausible answers. The 80% range is the 10th–90th percentile.</p>
-    <p><strong>5. Adaptive questioning.</strong> At each step Oracle asked the open question with the largest expected effect on your forecast.</p>
-    ${rows ? `<table><thead><tr><th>Factor</th><th>Your answer</th><th>log LR</th><th>LR</th></tr></thead><tbody>${rows}</tbody></table>` : ''}
+    <p><strong>3. Coherence.</strong> Weights are rescaled so that averaging the forecast over everyone in the reference class gives back exactly the base rate (law of total probability). Without this, sloppy weights quietly push every forecast up or down. The table shows each weight before and after.</p>
+    <p><strong>4. Correlation correction, tuned by simulation.</strong> Questions overlap (income and savings rate both reflect earning power), so naive Bayes would double-count. The model estimates that ${pct(m.overlap)} of the signal is shared. Oracle simulated a population with that overlap and picked the correction that forecast it best: ρ = <code>${m.dependence.toFixed(2)}</code>, shrinking the evidence by <code>1/√(1+ρ(n−1)) = ${post.shrink.toFixed(2)}</code>.</p>
+    <p><strong>5. Uncertainty.</strong> ${r.simulation.n.toLocaleString()} Monte Carlo runs vary the base rate (σ = ${m.baseRateUncertainty} log-odds) and each weight, and fill unanswered questions with plausible answers. The 80% range is the 10th–90th percentile.</p>
+    <p><strong>6. Adaptive questioning.</strong> At each step Oracle asked the open question with the largest expected effect on your forecast.</p>
+    ${rows ? `<table><thead><tr><th>Factor</th><th>Your answer</th><th>raw log LR</th><th>coherent</th><th>LR</th></tr></thead><tbody>${rows}</tbody></table>` : ''}
+    <div class="calib-check" id="calib-check">
+      <h4>Calibration check</h4>
+      <p class="muted small">Does “30%” really mean 30%? Oracle can simulate 4,000 people from this model, forecast each one, and compare against what happened to them.</p>
+      <button class="btn ghost small" id="run-calib">Run calibration check</button>
+    </div>
     ${m.caveat ? `<p class="muted small" style="margin-top:12px">⚠ ${esc(m.caveat)}</p>` : ''}`;
+  $('run-calib').onclick = runCalibration;
+}
+
+function runCalibration() {
+  const box = $('calib-check');
+  const s = calibrationStudy(S.model, { n: 4000, overlap: S.model.overlap, seed: 2024 });
+  const w = 260;
+  const h = 200;
+  const x = (v) => 34 + v * (w - 44);
+  const y = (v) => h - 26 - v * (h - 40);
+  // Hide sparse buckets: a handful of people makes the curve wobble meaninglessly.
+  for (const k of ['oracle', 'naive']) s[k].reliability = s[k].reliability.filter((b) => b.n >= 30);
+  const dots = (rel, cls) => rel.map((b) => `<circle cx="${x(b.predicted)}" cy="${y(b.actual)}" r="${2.5 + Math.min(5, Math.sqrt(b.n) / 6)}" class="${cls}"><title>Forecast ≈${pct(b.predicted)} → happened ${pct(b.actual)} (${b.n} people)</title></circle>`).join('');
+  const line = (rel) => rel.map((b, i) => `${i ? 'L' : 'M'}${x(b.predicted).toFixed(1)},${y(b.actual).toFixed(1)}`).join(' ');
+  box.innerHTML = `
+    <h4>Calibration check <span class="muted small">· ${s.n.toLocaleString()} simulated people, ${pct(S.model.overlap)} shared signal</span></h4>
+    <div class="calib-grid">
+      <svg class="chart" viewBox="0 0 ${w} ${h}" width="100%" role="img" aria-label="Reliability diagram">
+        <line x1="${x(0)}" y1="${y(0)}" x2="${x(1)}" y2="${y(1)}" class="connector"/>
+        <line x1="${x(0)}" y1="${y(0)}" x2="${x(1)}" y2="${y(0)}" class="axis"/>
+        <line x1="${x(0)}" y1="${y(0)}" x2="${x(0)}" y2="${y(1)}" class="axis"/>
+        <path d="${line(s.naive.reliability)}" fill="none" stroke="var(--neg)" stroke-opacity=".6" stroke-width="1.5"/>
+        ${dots(s.naive.reliability, 'cal-naive')}
+        <path d="${line(s.oracle.reliability)}" fill="none" stroke="var(--accent-2)" stroke-width="2"/>
+        ${dots(s.oracle.reliability, 'cal-oracle')}
+        <text x="${x(0.5)}" y="${h - 6}" text-anchor="middle">forecast</text>
+        <text x="10" y="${y(0.5)}" text-anchor="middle" transform="rotate(-90 10 ${y(0.5)})">actually happened</text>
+        <text x="${x(0)}" y="${y(0) + 13}" text-anchor="middle">0</text><text x="${x(1)}" y="${y(0) + 13}" text-anchor="end">100%</text>
+      </svg>
+      <table>
+        <thead><tr><th></th><th>Calibration error</th><th>Brier</th><th>Log loss</th></tr></thead>
+        <tbody>
+          <tr><td><span class="key-dot oracle"></span>Oracle</td><td class="num-col">${(s.oracle.ece * 100).toFixed(1)} pts</td><td class="num-col">${s.oracle.brier.toFixed(3)}</td><td class="num-col">${s.oracle.logLoss.toFixed(3)}</td></tr>
+          <tr><td><span class="key-dot naive"></span>Naive Bayes</td><td class="num-col">${(s.naive.ece * 100).toFixed(1)} pts</td><td class="num-col">${s.naive.brier.toFixed(3)}</td><td class="num-col">${s.naive.logLoss.toFixed(3)}</td></tr>
+          <tr><td>Base rate only</td><td class="num-col">—</td><td class="num-col">${s.baseRate.brier.toFixed(3)}</td><td class="num-col">${s.baseRate.logLoss.toFixed(3)}</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="muted small">Points on the dashed diagonal are perfectly calibrated. Lower Brier and log loss are better. This checks the engine's internal consistency under the model's own assumptions. Only real outcomes, which the journal records, can show whether the weights match the world.</p>`;
 }
 
 async function loadNarrative() {
@@ -577,6 +631,8 @@ async function decodeShare(code) {
 async function copyShareLink() {
   const code = await encodeShare({ v: 1, m: S.model, a: S.whatIf, n: S.narrative });
   const url = `${location.origin}${location.pathname}#r=${code}`;
+  // The address bar always holds the link too, so it can be copied by hand.
+  history.replaceState(null, '', `#r=${code}`);
   try {
     await navigator.clipboard.writeText(url);
     toast('Share link copied. It opens this exact forecast.');
@@ -588,7 +644,7 @@ async function copyShareLink() {
 async function openShared(code) {
   const data = await decodeShare(code);
   S.model = validateModel(data.m);
-  S.answers = { ...(data.a || {}) };
+  S.answers = cleanAnswers(S.model, data.a);
   S.baseline = { ...S.answers };
   S.whatIf = { ...S.answers };
   S.narrative = data.n && typeof data.n === 'object' ? data.n : null;
@@ -735,9 +791,9 @@ function bindJournal() {
       const entry = journal.list().find((x) => x.id === id);
       if (entry?.model) {
         S.model = validateModel(entry.model);
-        S.answers = { ...entry.answers };
-        S.baseline = { ...entry.answers };
-        S.whatIf = { ...entry.answers };
+        S.answers = cleanAnswers(S.model, entry.answers);
+        S.baseline = { ...S.answers };
+        S.whatIf = { ...S.answers };
         S.narrative = entry.narrative || null;
         show('result');
         renderResult();
@@ -757,10 +813,10 @@ function bindJournal() {
     try {
       const list = JSON.parse(await file.text());
       if (!Array.isArray(list)) throw new Error();
-      journal.replaceAll(list);
+      const kept = journal.importMany(list);
       renderJournal();
       updateJournalCount();
-      toast(`Imported ${list.length} predictions`);
+      toast(kept === list.length ? `Imported ${kept} predictions` : `Imported ${kept} of ${list.length} entries (skipped malformed ones)`);
     } catch {
       toast('That file is not an Oracle journal export.');
     }
